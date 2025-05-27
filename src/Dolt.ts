@@ -8,7 +8,6 @@ export class Dolt {
 
   private async query(sql: string) {
     const [rows] = await this.conn.query(sql);
-    console.log(rows);
     return rows;
   }
 
@@ -79,21 +78,22 @@ export class Dolt {
    * @return {*}  {Promise<boolean>}
    * @memberof Dolt
    */
-  async CloneDatabase(options: {
-    from: string;
-    branch?: string;
-    remote?: string;
-    depth?: number;
-    to?: string;
-  }): Promise<boolean> {
+  async CloneDatabase(
+    from: string,
+    options: {
+      branch?: string;
+      remote?: string;
+      depth?: number;
+      to?: string;
+    }
+  ): Promise<boolean> {
     const sql = this.flag("DOLT_CLONE", [
       [options.branch, `'--branch', '${options.branch}'`, ""],
       [options.remote, `'--remote', '${options.remote}'`, ""],
       [options.depth, `'--depth', '${options.depth}'`, ""],
-      [options.from, `'${options.from}'`, ""],
+      [from, `'${from}'`, ""],
       [options.to, `'${options.to}'`, ""],
     ]);
-    console.log("sql :>> ", sql);
     const res = (await this.query(sql)) as ResultSetHeader;
     return res.affectedRows > 0;
   }
@@ -102,25 +102,41 @@ export class Dolt {
    *Stages the changes to the selected tables if no tables are passed all tables are staged
    *
    * @param {string[]} [tables] The tables to stage
-   * @return {*} {Promise<boolean>}
+   * @return {*} {Promise<boolean>} returns true if successful
    * @memberof Dolt
    */
-  async Stage(tables?: string[]) {
+  async Add(tables?: string[]): Promise<boolean> {
     let sql = "";
     if (tables) {
-      sql = `CALL DOLT_STAGE(${tables
+      sql = `CALL DOLT_ADD(${tables
         .map((table) => "'" + table + "'")
         .join(",")});`;
     } else {
       sql = `CALL DOLT_ADD('-A');`;
     }
-    const res = (await this.query(sql)) as ResultSetHeader;
-    return res.affectedRows > 0;
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
   }
 
+  /**
+   * Commits the staged changes or all
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_commit
+   * @param {string} message
+   * @param {{
+   *       author?: string;
+   *       date?: string;
+   *       allButNotNewTables?: boolean;
+   *       all?: boolean;
+   *       allowEmpty?: boolean;
+   *       skipEmpty?: boolean;
+   *     }} [options]
+   * @return {*}  {Promise<string>} The commit sha
+   * @memberof Dolt
+   */
   async Commit(
     message: string,
-    options: {
+    options?: {
       author?: string;
       date?: string;
       allButNotNewTables?: boolean;
@@ -128,15 +144,104 @@ export class Dolt {
       allowEmpty?: boolean;
       skipEmpty?: boolean;
     }
-  ) {
+  ): Promise<string> {
     const sql = this.flag("DOLT_COMMIT", [
-      [message, `'-m', '${message}'`, ""],
-      [options.date || "", `'--date', '${options.date}'`, ""],
-      [String(options.all)!!, `'-A'`, ""],
-      [String(options.allButNotNewTables)!!, `'${options.to}'`, ""],
+      [message, `'--message', '${message}'`, ""],
+      [options?.date, `'--date', '${options?.date}'`, ""],
+      [options?.all, `'--ALL'`, ""],
+      [options?.allButNotNewTables, `'--all'`, ""],
+      [options?.author, `'--author', '${options?.author}'`, ""],
+      [options?.allowEmpty, `'--allow-empty'`, ""],
+      [options?.skipEmpty, `'--skip-empty'`, ""],
     ]);
 
-    const res = (await this.query(sql)) as ResultSetHeader;
-    return res.affectedRows > 0;
+    const res = (await this.query(sql)) as { hash: string }[];
+    return res[0].hash;
+  }
+
+  /**
+   *Resets the tables to be commited or if hard mode is set all changes to a commit or branch
+   *
+   * @param {string} table
+   * @param {{
+   *       hard?: string;
+   *     }} options
+   * @return {*}
+   * @memberof Dolt
+   */
+  async Reset(
+    table: string,
+    options?: {
+      hard?: boolean;
+    }
+  ) {
+    const sql = this.flag("DOLT_RESET", [
+      [table && !options?.hard, `'${table}'`, ""],
+      [options?.hard && table, `'--hard', '${table}'`, ""],
+      [options?.hard && !table, `'--hard'`, ""],
+    ]);
+
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
+  }
+
+  /**
+   *Reverts the changes introduced in a commit, or set of commits. Creates a new commit from the current HEAD that reverses
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_revert
+   *
+   * @param {string} ref
+   * @param {{
+   *       author?: string;
+   *     }} [options]
+   * @return {*}
+   * @memberof Dolt
+   */
+  async Revert(
+    ref: string,
+    options?: {
+      author?: string;
+    }
+  ) {
+    const sql = this.flag("DOLT_RESET", [
+      [ref, `'${ref}'`, ""],
+      [options?.author, `'--author=${options?.author}'`, ""],
+    ]);
+
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
+  }
+
+  /**
+   *Creates a new tag that points at specified commit ref, or deletes an existing tag
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_tag
+   *
+   * @param {string} tag
+   * @param {string} ref
+   * @param {{
+   *       message?: string;
+   *       author?: string;
+   *       delete?: boolean;
+   *     }} [options]
+   * @return {*}
+   * @memberof Dolt
+   */
+  async Tag(
+    tag: string,
+    ref: string,
+    options?: {
+      message?: string;
+      author?: string;
+    }
+  ) {
+    const sql = this.flag("DOLT_TAG", [
+      [tag, `'${tag}', '${ref}'`, ""],
+      [options?.author, `'--author=${options?.author}'`, ""],
+      [options?.message, `'--message', '${options?.message}'`, ""],
+    ]);
+
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
   }
 }
