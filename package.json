@@ -1,0 +1,52 @@
+{
+  "name": "mylib",
+  "type": "module",
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.11.0+sha512.6540583f41cc5f628eb3d9773ecee802f4f9ef9923cc45b69890fb47991d4b092964694ec3a4f738a420c918a333062c8b925d312f42e4f0c263eb603551f977",
+  "description": "",
+  "author": "Ilya Semenov",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IlyaSemenov/mylib"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "dist/index.cjs",
+  "files": [
+    "!src/**/*.test.*",
+    "dist",
+    "src"
+  ],
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "10",
+      "onFail": "warn"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint --fix .",
+    "prepare": "husky",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.10",
+    "@ilyasemenov/eslint-config": "^1.4.1",
+    "eslint": "^9.26.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "tsconfig-vite-node": "^1.1.2",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.1.3"
+  }
+}
