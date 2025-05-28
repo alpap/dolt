@@ -27,7 +27,9 @@ export class Dolt {
         text += option[2] + ",";
       }
     }
-    text = text.substring(0, text.length - 1);
+    if (text[text.length - 1] === ",") {
+      text = text.substring(0, text.length - 1);
+    }
     text += ");";
     return text;
   }
@@ -101,6 +103,8 @@ export class Dolt {
   /**
    *Stages the changes to the selected tables if no tables are passed all tables are staged
    *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_add
+   *
    * @param {string[]} [tables] The tables to stage
    * @return {*} {Promise<boolean>} returns true if successful
    * @memberof Dolt
@@ -166,7 +170,7 @@ export class Dolt {
    * @param {{
    *       hard?: string;
    *     }} options
-   * @return {*}
+   * @return {*}  {Promise<boolean>}
    * @memberof Dolt
    */
   async Reset(
@@ -174,7 +178,7 @@ export class Dolt {
     options?: {
       hard?: boolean;
     }
-  ) {
+  ): Promise<boolean> {
     const sql = this.flag("DOLT_RESET", [
       [table && !options?.hard, `'${table}'`, ""],
       [options?.hard && table, `'--hard', '${table}'`, ""],
@@ -194,7 +198,7 @@ export class Dolt {
    * @param {{
    *       author?: string;
    *     }} [options]
-   * @return {*}
+   * @return {*} {Promise<boolean>}
    * @memberof Dolt
    */
   async Revert(
@@ -202,7 +206,7 @@ export class Dolt {
     options?: {
       author?: string;
     }
-  ) {
+  ): Promise<boolean> {
     const sql = this.flag("DOLT_RESET", [
       [ref, `'${ref}'`, ""],
       [options?.author, `'--author=${options?.author}'`, ""],
@@ -213,7 +217,7 @@ export class Dolt {
   }
 
   /**
-   *Creates a new tag that points at specified commit ref, or deletes an existing tag
+   *Creates a new tag that points at specified commit ref
    *
    * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_tag
    *
@@ -224,7 +228,7 @@ export class Dolt {
    *       author?: string;
    *       delete?: boolean;
    *     }} [options]
-   * @return {*}
+   * @return {*} {Promise<boolean>}
    * @memberof Dolt
    */
   async Tag(
@@ -234,13 +238,112 @@ export class Dolt {
       message?: string;
       author?: string;
     }
-  ) {
+  ): Promise<boolean> {
     const sql = this.flag("DOLT_TAG", [
       [tag, `'${tag}', '${ref}'`, ""],
       [options?.author, `'--author=${options?.author}'`, ""],
       [options?.message, `'--message', '${options?.message}'`, ""],
     ]);
 
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
+  }
+
+  /**
+   *Deletes a tag
+   *
+   * @param {string} tag
+   * @return {*} {Promise<boolean>}
+   * @memberof Dolt
+   */
+  async DeleteTag(tag: string): Promise<boolean> {
+    const sql = this.flag("DOLT_TAG", [[tag, `'-d', '${tag}'`, ""]]);
+
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
+  }
+
+  /**
+   *Restores a dropped database
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_undrop
+   *
+   * @param {string} name
+   * @return {*} {Promise<boolean>}
+   * @memberof Dolt
+   */
+  async Undrop(name: string): Promise<boolean> {
+    const sql = this.flag("DOLT_UNDROP", [[name, `'${name}'`, ""]]);
+
+    const res = (await this.query(sql)) as { status: number }[];
+    return res[0].status === 0;
+  }
+
+  /**
+   *Updates a column's internal identifier. Most users will never need to know about column tags, but there are some rare cases where a column tag collision can occur during a merge. In those cases, it can be useful to manually update a column's tag. This is an advanced operation, so use with caution
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_undrop
+   *
+   * @param {string} table
+   * @param {string} column
+   * @param {(string | number)} tag
+   * @param {{
+   *       commit?: boolean;
+   *     }} options
+   * @return {*} {Promise<boolean>}
+   * @memberof Dolt
+   */
+  async UpdateColumnTag(
+    table: string,
+    column: string,
+    tag: string | number,
+    options: {
+      commit?: boolean;
+    }
+  ): Promise<boolean> {
+    const sql = this.flag("DOLT_UPDATE_COLUMN_TAG", [
+      [
+        table,
+        `'${table}','${column}',${typeof tag === "string" ? `'${tag}'` : tag}`,
+        "",
+      ],
+    ]);
+    const res = (await this.query(sql)) as { status: number }[];
+
+    if (options.commit) {
+      await this.Commit("Update column tag");
+    }
+
+    return res[0].status === 0;
+  }
+
+  /**
+   *Verifies that working set changes (inserts, updates, and/or deletes) satisfy the
+defined table constraints. If any constraints are violated they are written to theDOLT_CONSTRAINT_VIOLATIONS table.
+   *
+   * https://docs.dolthub.com/sql-reference/version-control/dolt-sql-procedures#dolt_verify_constraints
+   *
+   * @param {string} table
+   * @param {{
+   *    verify_constraints_for_every_row?: boolean;
+   *    output_only?: boolean;
+   *     }} options
+   * @return {*} {Promise<boolean>} return 1 if violations are found
+   * @memberof Dolt
+   */
+  async VerifyConstraints(
+    table?: string,
+    options?: {
+      verify_constraints_for_every_row?: boolean;
+      output_only?: boolean;
+    }
+  ): Promise<boolean> {
+    const sql = this.flag("DOLT_VERIFY_CONSTRAINTS", [
+      [table, `'${table}'`, ""],
+      [options?.verify_constraints_for_every_row, `'--all'`, ""],
+      [options?.output_only, `'--output-only'`, ""],
+    ]);
+    console.log("sql :>> ", sql);
     const res = (await this.query(sql)) as { status: number }[];
     return res[0].status === 0;
   }

@@ -1,7 +1,8 @@
 import { expect, it, afterAll, beforeAll } from "vitest";
 import mysql, { ConnectionOptions } from "mysql2/promise";
 import { Dolt } from "../src/Dolt";
-import { randomInt } from "crypto";
+import { ulid } from "ulid";
+import { table } from "console";
 
 const access: ConnectionOptions = {
   user: "root",
@@ -33,14 +34,16 @@ it.sequential("create database", async () => {
   expect(databases).toContain("test4");
 });
 
-it.sequential("drop database", async () => {
-  await dolt.DropDatabase("test");
+it("drop database", async () => {
+  await dolt.CreateDatabase("test432");
+  await dolt.DropDatabase("test432");
   const databases = await dolt.ListDatabases();
-  expect(databases).not.toContain("test");
+  expect(databases).not.toContain("test432");
 });
 
 it.sequential("list dataabses", async () => {
   const databases = await dolt.ListDatabases();
+  expect(databases).toContain("test");
   expect(databases).toContain("test2");
   expect(databases).toContain("test3");
   expect(databases).toContain("test4");
@@ -60,7 +63,7 @@ it.sequential("list dataabses", async () => {
 
 it.sequential("add", async () => {
   conn.query("USE test2;");
-  const table = "test" + randomInt(100000);
+  const table = ulid();
   await conn.query(`CREATE TABLE ${table} (id INT);`);
   await dolt.Add([table]);
   const sha = await dolt.Commit("message");
@@ -69,7 +72,7 @@ it.sequential("add", async () => {
 
 it.sequential("reset hard", async () => {
   conn.query("USE test2;");
-  const table = "test" + randomInt(100000);
+  const table = ulid();
   await conn.query(`CREATE TABLE ${table} (id INT);`);
   await conn.query(`INSERT INTO ${table} (id) VALUES (1);`);
   await dolt.Add([table]);
@@ -132,21 +135,74 @@ it.sequential("reset hard", async () => {
 
 it.sequential("commit", async () => {
   conn.query("USE test2;");
-  await conn.query(`CREATE TABLE test${randomInt(1000)} (id INT);`);
+  await conn.query(`CREATE TABLE ${ulid()} (id INT);`);
   const sha = await dolt.Commit("commit", { all: true });
-  console.log("sha :>> ", sha);
   expect(sha.length).greaterThan(3);
 });
 
 it.sequential("tag", async () => {
   conn.query("USE test2;");
-  const table = "test" + randomInt(100000);
+  const table = ulid();
   await conn.query(`CREATE TABLE ${table} (id INT);`);
   await conn.query(`INSERT INTO ${table} (id) VALUES (1);`);
   await dolt.Add([table]);
   const sha = await dolt.Commit("commit", { all: true });
-  console.log("sha :>> ", sha);
-  expect(sha.length).greaterThan(3);
+  const res = await dolt.Tag(ulid(), sha, { message: "message" });
+  expect(res).toBe(true);
+});
+
+it.sequential("tag", async () => {
+  conn.query("USE test2;");
+  const table = ulid();
+  await conn.query(`CREATE TABLE ${table} (id INT);`);
+  await conn.query(`INSERT INTO ${table} (id) VALUES (1);`);
+  await dolt.Add([table]);
+  const sha = await dolt.Commit("commit", { all: true });
+  const res = await dolt.Tag(table, sha, { message: "message" });
+  await dolt.DeleteTag(table);
+  expect(res);
+});
+
+it("undrop", async () => {
+  await dolt.CreateDatabase("test21");
+  const dbs = await dolt.ListDatabases();
+  expect(dbs).toContain("test21");
+  await dolt.DropDatabase("test21");
+  const dbs2 = await dolt.ListDatabases();
+  expect(dbs2).not.toContain("test21");
+  await dolt.Undrop("test21");
+  const dbs3 = await dolt.ListDatabases();
+  expect(dbs3).toContain("test21");
+});
+
+// find a good test
+// it.sequential("update column tag", async () => {
+//   await dolt.CreateDatabase("test21");
+//   const dbs = await dolt.ListDatabases();
+// });
+
+// according to the examples this should fail but it succeeds???
+it("verify constraints", async () => {
+  const database = ulid();
+  await dolt.CreateDatabase(database);
+  await conn.query(`USE ${database};`);
+  await conn.query(`CREATE TABLE parent (pk int PRIMARY KEY);`);
+  await conn.query(`CREATE TABLE child (
+    pk int PRIMARY KEY,
+    parent_fk int,
+    FOREIGN KEY (parent_fk) REFERENCES parent(pk));
+    `);
+  await conn.query(`SET dolt_force_transaction_commit = ON; `);
+  await conn.query(`SET FOREIGN_KEY_CHECKS = OFF; `);
+  await conn.query(`INSERT INTO PARENT VALUES (1); `);
+  await conn.query(`INSERT INTO CHILD VALUES (1, -1);  `);
+
+  let res = await dolt.VerifyConstraints();
+  expect(res).toBe(false);
+  res = await dolt.VerifyConstraints("parent");
+  expect(res).toBe(false);
+  res = await dolt.VerifyConstraints("child");
+  expect(res).toBe(false);
 });
 
 afterAll(async () => {
